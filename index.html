@@ -1,0 +1,149 @@
+<html>
+  <head>
+    <title>QR-scanner</title>
+    <script src="./node_modules/html5-qrcode/html5-qrcode.min.js"></script>
+  </head>
+  <style>
+    main {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      flex-direction: column;
+    }
+    #reader {
+      width: 600px;
+      margin-bottom: 20px;
+    }
+    #result {
+      text-align: center;
+      font-size: 1.5rem;
+    }
+    #scan-again {
+      display: none;
+      padding: 10px 20px;
+      background-color: blue;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+  </style>
+
+  <main>
+    <div id="reader"></div>
+    <div id="result"></div>
+    <button id="scan-again" onclick="scanAgain()">Scan Again</button>
+  </main>
+
+  <script>
+    let allowedList = [];
+    let notAllowedList = [];
+    let scanner;
+
+    // Fetch lists from the server before scanning
+    async function fetchLists() {
+      try {
+        const response = await fetch('http://localhost:5000/get-lists');
+        const data = await response.json();
+        allowedList = data.allowedList;
+        notAllowedList = data.notAllowedList;
+        console.log("allowedList:" + allowedList);
+      } catch (err) {
+        console.error('Failed to fetch lists', err);
+      }
+    }
+
+    // Post updated lists to the server after scanning
+    async function updateLists() {
+      try {
+        const response = await fetch('http://localhost:5000/update-lists', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ allowedList, notAllowedList }),
+        });
+
+        if (response.ok) {
+          console.log('Lists updated successfully');
+        } else {
+          console.error('Failed to update lists', response.statusText);
+        }
+      } catch (err) {
+        console.error('Error updating lists:', err);
+      }
+    }
+
+    // Initialize the scanner after fetching the lists
+    async function startScanner() {
+      await fetchLists();
+
+      // Create a new scanner instance
+      scanner = new Html5QrcodeScanner('reader', {
+        qrbox: {
+          width: 250,
+          height: 250,
+        },
+        fps: 20,
+      });
+
+      // Start scanning
+      scanner.render(success, error);
+    }
+
+    // QR scan success callback
+    async function success(result) {
+      if (notAllowedList.includes(result)) {
+        document.getElementById('result').innerHTML = `
+          <h2 style="color: red;">Access Denied!</h2>
+        `;
+      } else if (allowedList.includes(result)) {
+        document.getElementById('result').innerHTML = `
+          <h2 style="color: green;">Access Granted!</h2>
+        `;
+
+        // Move the scanned QR code from allowedList to notAllowedList
+        allowedList = allowedList.filter(item => item !== result);
+        notAllowedList.push(result);
+
+        // Post updated lists to the server
+        await updateLists();
+      } else {
+        document.getElementById('result').innerHTML = `
+          <h2 style="color: orange;">Unknown QR Code</h2>
+          <p>The scanned QR code (${result}) is not in the allowed or denied lists.</p>
+        `;
+      }
+
+      // Show the "Scan Again" button and hide the reader
+      document.getElementById('reader').style.display = 'none';
+      document.getElementById('scan-again').style.display = 'block';
+      scanner.clear();
+    }
+
+    // QR scan error callback
+    function error(err) {
+      console.error(err);
+    }
+
+    // Re-initialize the scanner for a new scan
+    function scanAgain() {
+      // Hide the result and show the scanner again
+      document.getElementById('result').innerHTML = '';
+      document.getElementById('reader').style.display = 'block';
+      document.getElementById('scan-again').style.display = 'none';
+
+      // Create a new scanner instance and restart scanning
+      scanner = new Html5QrcodeScanner('reader', {
+        qrbox: {
+          width: 250,
+          height: 250,
+        },
+        fps: 20,
+      });
+      scanner.render(success, error);
+    }
+
+    // Start scanner on page load
+    startScanner();
+  </script>
+</html>
